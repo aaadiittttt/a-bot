@@ -1,6 +1,6 @@
-# Wabase V3 - WhatsApp Bot
+# A-BOT V1 - WhatsApp Bot
 
-Wabase V3 adalah bot WhatsApp yang dibuat menggunakan Node.js dan library [Baileys](https://github.com/WhiskeySockets/Baileys). Bot ini dapat mendownload video TikTok tanpa watermark, mendownload postingan Instagram, dan memiliki command menu.
+A-BOT V1 adalah bot WhatsApp yang dibuat menggunakan Node.js dan library [Baileys](https://github.com/WhiskeySockets/Baileys). Bot ini dapat mendownload video TikTok tanpa watermark, mendownload postingan Instagram, dan memiliki command menu.
 
 ## Fitur
 
