@@ -1,320 +1,227 @@
-// index.js (atau main.js) - Perbaikan MINIMAL untuk Logger
+// index.js
 require("./config/global");
 const path = require("path");
 const fs = require("fs");
 const {
-  makeInMemoryStore,
-  useMultiFileAuthState,
-  default: makeWASocket,
-  Browsers,
-  makeCacheableSignalKeyStore,
-  isJidStatusBroadcast,
-  isJidGroup,
-  DisconnectReason,
-  getContentType,
+    default: makeWASocket,
+    DisconnectReason,
+    useMultiFileAuthState,
+    Browsers,
+    makeCacheableSignalKeyStore,
+    isJidStatusBroadcast,
+    isJidGroup,
+    getContentType,
+    makeInMemoryStore
 } = require("@whiskeysockets/baileys");
-const pino = require("pino");
 const NodeCache = require("node-cache");
-const inquirer = require("inquirer");
-let useCode = {
-  isTrue: true,
-};
 
+// Import utilities
 const sleep = require("./utils/sleep");
-const logger = require("./utils/logger"); // IMPORT LOGGER DENGAN BENAR
+const logger = require("./utils/logger");
 
+const AUTH_FILE_LOCATION = './sezz';
 
-// HAPUS INISIALISASI PINO YANG SALAH:
-// const log = pino({ level: "fatal" }).child({ level: "fatal", stream: "store" });
-
-// Gunakan logger yang diimpor, dan pastikan store diinisialisasi dengan benar
-const store = global.useStore ? makeInMemoryStore({ logger: logger }) : undefined; //KIRIM LOGGER
-if (store) { // Perbaiki di sini
-    store.readFromFile("./sezz/store.json");
+const store = global.useStore ? makeInMemoryStore({ logger: logger }) : undefined;
+if (store) {
+    store.readFromFile('./baileys_store_multi.json');
     setInterval(() => {
-        store.writeToFile("./sezz/store.json");
-    }, 5000); // Gunakan interval 5 detik
+        store.writeToFile('./baileys_store_multi.json');
+    }, 10000);
 }
 
-(async function start() {
-  console.log("\n\n");
-  const commands = await new Promise((resolve, reject) => {
-    const data = [];
-    function readcmd(dircmd) {
-      fs.readdirSync(dircmd).forEach((file) => {
-        const fullpath = path.join(dircmd, file);
-        if (fs.statSync(fullpath).isDirectory()) {
-          readcmd(fullpath);
-        } else if (file.endsWith(".js")) {
-          try { // Tambahkan try...catch di sini
-            const filecontent = require(fullpath);
-            filecontent.cmd = file.replace(".js", "");
-            filecontent.path = fullpath;
 
-            const existCmd = data.find(
-              (val) => val.cmd === file.replace(".js", ""),
-            );
-            if (existCmd) {
-              reject(
-                `Terdapat duplikat filename (filename sebagai command)\n- ${fullpath}\n- ${existCmd.path}`,
-              );
-            }
+// Fungsi untuk memuat command (dengan error handling)
+function loadCommands() {
+    const commandDir = path.join(__dirname, 'commands');
+    const commandFiles = fs.readdirSync(commandDir).filter(file => file.endsWith('.js'));
+    const commands = new Map();
 
-            data.push(filecontent);
-        } catch (error){
-            logger.error(`Error saat memuat command ${file}:`, error);
-        }
-        }
-      });
-    }
-    readcmd(path.join(__dirname, "./commands"));
-    resolve(data);
-  }).catch((err) => {
-    console.log(err);
-    process.send("exit");
-  });
-  const { state, saveCreds } = await useMultiFileAuthState("./sezz").catch(
-    console.log,
-  );
-  const sock = makeWASocket({
-    logger: logger, // GUNAKAN LOGGER YANG DI-IMPORT
-    browser: Browsers.ubuntu("Chrome"),
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger), //KIRIM LOGGER
-    },
-    printQRInTerminal: !useCode.isTrue,
-    defaultQueryTimeoutMs: undefined,
-    generateHighQualityLinkPreview: true,
-    getMessage: async (key) => {
-      if (store) {
-        const m = await store.loadMessage(key.remoteJid, key.id);
-        return m;
-      } else return {};
-    },
-    markOnlineOnConnect: global.online,
-    msgRetryCounterCache: new NodeCache(),
-    shouldSyncHistoryMessage: () => true,
-    shouldIgnoreJid: (jid) => isJidStatusBroadcast(jid),
-    syncFullHistory: global.useStore,
-  });
-  store?.bind(sock.ev);
-  if (useCode.isTrue && !sock.user && !sock.authState.creds.registered) {
-    console.log("\n\n");
-    async function next() {
-      // Hapus: logger("info", "PAIRING CODE", `Request pairing code: ${botNumber}`);
-      // Ganti dengan:
-      logger.info("PAIRING CODE", `Request pairing code: ${global.botNumber}`); // Gunakan global.botNumber
-      await sleep(3000);
-      let code = await sock.requestPairingCode(global.botNumber); // Gunakan global.botNumber
-      code = code?.match(/.{1,4}/g)?.join("-") || code;
-      // Hapus: logger("primary", "PAIRING CODE", `Pairing code: ${code}`);
-      // Ganti dengan:
-      logger.info("PAIRING CODE", `Pairing code: ${code}`); // Gunakan logger.info
-        console.log(`Pairing Code: ${code}`); // dan console.log
-    }
-    if (global.botNumber) { // Gunakan global.botNumber
-      await next();
-    } else {
-      await inquirer
-        .prompt([
-          {
-            type: "confirm",
-            name: "confirm",
-            default: true,
-            message: "Terhubung menggunakan pairing code?",
-          },
-        ])
-        .then(async ({ confirm }) => {
-          useCode.isTrue = confirm;
-          if (confirm) {
-            global.botNumber = ( // Gunakan global.botNumber
-              await inquirer.prompt([
-                {
-                  type: "number",
-                  name: "number",
-                  message: "Masukkan nomor WhatsApp (Contoh: 6285179845835)",
-                },
-              ])
-            ).number;
-            await next();
-          } else return start();
-        });
-    }
-  }
-  sock.ev.on("creds.update", saveCreds);
-  sock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
-    if (connection === "connecting") {
-      if (sock.user) {
-        logger.info( // Ganti logger(...) dengan logger.info(...)
-          "CONNECTION",
-          `Reconnecting ${sock.user.id.split(":")[0]}`,
-        );
-      }
-    }
-    if (connection === "open") {
-      sock.id = `${sock.user.id.split(":")[0]}@s.whatsapp.net`;
-      if (global.inviteCode) { //Gunakan global
-        await sock.groupAcceptInvite(global.inviteCode);
-      }
-      await sock.sendMessage(sock.id, {
-        text: `Berhasil terhubung dengan ${global.botName}`, //Gunakan global
-      });
-      logger.info("CONNECTION", `Connected ${sock.id.split("@")[0]}`); // Ganti logger(...) dengan logger.info(...)
-    }
-    if (connection === "close") {
-      const { statusCode, message, error } =
-        lastDisconnect.error?.output.payload;
-      if (
-        statusCode === DisconnectReason.badSession ||
-        statusCode === DisconnectReason.forbidden ||
-        statusCode == 405 ||
-        (statusCode === DisconnectReason.loggedOut &&
-          message !== "Stream Errored (conflict)")
-      ) {
-        fs.rmSync("./sezz", {
-          force: true,
-          recursive: true,
-        });
-      }
-      logger.error( `Koneksi ${error}`, `${statusCode} ${message}`); // Ganti logger(...) dengan logger.error(...)
-      start();
-    }
-  });
-  sock.ev.on("messages.upsert", async ({ messages }) => {
-    const m = messages[0];
-    if (!m.message) return;
-    if (m.message.reactionMessage || m.message.protocolMessage) return;
-    m.id = m.key.remoteJid;
-    m.isGroup = isJidGroup(m.id);
-    m.userId = !m.isGroup
-      ? m.id
-      : m.key.participant || `${m.participant.split(":")[0]}@s.whatsapp.net`;
-    m.isBot = m.userId.endsWith("@bot");
-    m.userName = m.pushName;
-    m.fromMe = m.key.fromMe;
-    m.itsSelf = m.id === sock.id;
-    m.isOwner = `${global.owner.number}@s.whatsapp.net` === m.userId;
-    m.type = getContentType(m.message);
-    m.isMentioned =
-      m.message[m.type].contextInfo?.mentionedJid?.length > 0
-        ? m.message[m.type].contextInfo.mentionedJid
-        : null;
-    m.isQuoted = m.message[m.type].contextInfo?.quotedMessage;
-    m.quoted = m.isQuoted ? m.message[m.type].contextInfo : null;
-    m.isForwarded = m.message[m.type].contextInfo?.isForwarded;
-    m.text =
-      m.type === "conversation"
-        ? m.message.conversation
-        : m.type === "extendedTextMessage"
-          ? m.message.extendedTextMessage.text
-          : m.type === "imageMessage"
-            ? m.message.imageMessage.caption
-            : m.type === "videoMessage"
-              ? m.message.videoMessage.caption
-              : m.type === "documentMessage"
-                ? m.message.documentMessage.caption
-                : m.type === "templateButtonReplyMessage"
-                  ? m.message.templateButtonReplyMessage.selectedId
-                  : m.type === "interactiveResponseMessage"
-                    ? JSON.parse(
-                        m.message.interactiveResponseMessage
-                          .nativeFlowResponseMessage.paramsJson,
-                      ).id
-                    : m.type === "messageContextInfo"
-                      ? m.message.buttonsResponseMessage?.selectedButtonId ||
-                        m.message.listResponseMessage?.singleSelectReply
-                          .selectedRowId ||
-                        m.message.buttonsResponseMessage?.selectedButtonId ||
-                        (m.message.interactiveResponseMessage
-                          ?.nativeFlowResponseMessage.paramsJson
-                          ? JSON.parse(
-                              m.message.interactiveResponseMessage
-                                .nativeFlowResponseMessage.paramsJson,
-                            )?.id
-                          : "") ||
-                        ""
-                      : m.type === "senderKeyDistributionMessage"
-                        ? m.message.conversation ||
-                          m.message.imageMessage?.caption
-                        : "";
-    m.isCmd = m.text?.startsWith(global.prefixCommand); //Gunakan global
-    m.cmd = m.text
-      ?.trim()
-      .replace(global.prefixCommand, "")  //Gunakan global
-      .split(" ")[0]
-      .toLowerCase();
-    m.args = m.text
-      ?.replace(/^\S*\b/g, "")
-      .trim()
-      .split(global.splitArgs)  //Gunakan global
-      .filter((arg) => arg !== "");
-    m.isLink = m.text?.match(
-      /(http:\/\/|https:\/\/)?(www\.)?[a-zA-Z0-9]+\.[a-zA-Z]+(\.[a-zA-Z]+)?(\/[^\s]*)?/g,
-    );
-    console.log(m);
-
-    if (
-      (global.setting.selfmode && !m.fromMe && !m.isOwner) ||  //Gunakan global
-      (global.dev && !m.fromMe && !m.isOwner) //Gunakan global
-    )
-      return;
-
-    if (!m.isCmd) return;
-
-    m.reply = (text) => sock.sendMessage(m.id, { text }, { quoted: m });
-
-    for (let command of commands) {
-      if (m.cmd === command.cmd) {
-        if (command.onlyOwner && !m.fromMe && !m.isOwner) return;
+    for (const file of commandFiles) {
         try {
-          logger.info("COMMAND", m.cmd.toUpperCase()); //Gunakan logger
-          if (command.autoRead) {
-            await sock.readMessages([m.key]);
-          }
-
-          if (command.presence) {
-            const presenceOptions = [
-              "unavailable",
-              "available",
-              "composing",
-              "recording",
-              "paused",
-            ];
-            await sock.sendPresenceUpdate(
-              presenceOptions.includes(command.presence)
-                ? command.presence
-                : "composing",
-              m.id,
-            );
-          }
-
-          if (command.react) {
-            await sock.sendMessage(m.id, {
-              react: {
-                key: m.key,
-                text: command.react,
-              },
-            });
-          }
-
-          await command.handle(sock, m, logger); // <--- KIRIM LOGGER
-          if (command.react) {
-            await sock.sendMessage(m.id, {
-              react: {
-                key: m.key,
-                text: "✅",
-              },
-            });
-          }
-        } catch (err) {
-          m.reply(`*ERROR:* ${err.message}`);
-          console.error(err);
-          logger.error("COMMAND", m.cmd.toUpperCase(), err); //Gunakan logger dan sertakan error
+            const command = require(path.join(commandDir, file));
+            commands.set(command.cmd, command);
+            logger.info(`[COMMAND] ${command.cmd} loaded`);
+        } catch (error) {
+            logger.error(`Gagal memuat command ${file}:`, error);
+            // Jangan reject, lanjutkan
         }
-        break;
-      }
     }
-  });
-})();
+    return commands;
+}
+
+const commands = loadCommands();
+let sock; // Deklarasi sock
+
+
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FILE_LOCATION);
+
+    // Cek apakah sudah ada instance sock
+    if (sock) {
+        logger.warn("Koneksi WhatsApp sudah ada. Tidak membuat koneksi baru.");
+        return;
+    }
+
+    sock = makeWASocket({
+        printQRInTerminal: !global.useCode, // QR code jika useCode false
+        logger: logger, // Gunakan logger yang di-import
+        auth: state, // Gunakan state
+        browser: Browsers.ubuntu("Chrome"),
+
+    });
+
+    store?.bind(sock.ev);
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, isNewLogin, qr } = update;
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            logger.error('connection closed due to ', lastDisconnect.error, ', reconnecting ', shouldReconnect);
+            if (shouldReconnect) {
+                connectToWhatsApp(); // Panggil rekursif jika perlu reconnect
+            }
+        } else if (connection === 'open') {
+            logger.info('opened connection');
+
+            // Pairing code (JIKA useCode TRUE)
+            if (global.useCode && !isNewLogin) { //Hanya jika useCode true dan BUKAN login baru
+                try {
+                    const code = await sock.requestPairingCode(global.botNumber);
+                    console.log(`Pairing Code: ${code}`);   // Tampilkan di console (PENTING)
+                    logger.info(`[PAIRING] Pairing Code: ${code}`);
+                } catch (error) {
+                    logger.error("[PAIRING] Error requesting pairing code:", error);
+                }
+            }
+        }
+
+          if (qr && !global.useCode){
+            console.log("Scan QR Code ini untuk login:")
+        }
+    });
+
+    sock.ev.on('messages.upsert', async (m) => {
+       if (!m.messages) return;
+        const msg = m.messages[0];
+        if (!msg) return;
+
+        const fromMe = msg.key.fromMe;
+        const type = msg.type;
+        const message = msg.message;
+        const contentType = message ? Object.keys(message)[0] : null;
+
+        if (global.setting.selfmode && !fromMe) {
+            return;
+        }
+
+        const normalizedMsg =  {
+            key: msg.key,
+            message: msg.message,
+            pushName: msg.pushName,
+            type: contentType,
+             get args() {
+
+                const text =  (this.type === 'conversation') ?  this.message.conversation :
+                              (this.type === 'extendedTextMessage') ? this.message.extendedTextMessage.text :
+                              (this.type == 'imageMessage') && this.message.imageMessage.caption ? this.message.imageMessage.caption :
+                              (this.type == 'videoMessage') && this.message.videoMessage.caption ? this.message.videoMessage.caption :
+                              '';
+               return text.split(' ').slice(1);
+            },
+             get quoted(){
+                return msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ?
+                       {
+                        stanzaId : msg.message.extendedTextMessage.contextInfo.stanzaId,
+                        participant : msg.message.extendedTextMessage.contextInfo.participant,
+                        message: msg.message.extendedTextMessage.contextInfo.quotedMessage,
+                         get type(){
+                           return  this.message ? Object.keys(this.message)[0] : null;
+                        },
+                        get fromMe(){
+                            return  this.participant === global.botNumber.split(":")[0] + "@s.whatsapp.net";
+                        }
+                       } : null
+            },
+
+            isQuoted: !!msg.message?.extendedTextMessage?.contextInfo?.quotedMessage,
+            isGroup: msg.key.remoteJid.endsWith('@g.us'),
+            from: msg.key.remoteJid,
+
+        }
+
+         let text = (normalizedMsg.type === 'conversation') ? normalizedMsg.message.conversation
+            : (normalizedMsg.type === 'extendedTextMessage') ? normalizedMsg.message.extendedTextMessage.text
+                : (normalizedMsg.type == 'imageMessage') && normalizedMsg.message.imageMessage.caption ? normalizedMsg.message.imageMessage.caption
+                    : (normalizedMsg.type == 'videoMessage') && normalizedMsg.message.videoMessage.caption ? normalizedMsg.message.videoMessage.caption
+                        : '';
+
+        const isCmd = text.startsWith(global.prefixCommand);
+        const command = isCmd ? text.slice(global.prefixCommand.length).trim().split(/ +/)[0].toLowerCase() : '';
+
+        logger.info(`[COMMAND] ${command} dari ${msg.pushName} (${msg.key.remoteJid})`);
+        console.log({
+            text: text,
+            isCmd: isCmd,
+            cmd: command,
+            args: normalizedMsg.args,
+            isLink : normalizedMsg.args ? normalizedMsg.args.filter(arg => arg.startsWith('http://') || arg.startsWith('https://')) : []
+        })
+
+        const cmd = commands.get(command);
+
+        if (isCmd && cmd) {
+            try {
+                await cmd.handle(sock, normalizedMsg, logger);
+            } catch (error) {
+                logger.error(`Error handling command ${command}:`, error);
+                await sock.sendMessage(msg.key.remoteJid, { text: global.mess.error.general }, { quoted: msg });
+            }
+        } else if (isCmd) {
+          await sock.sendMessage(
+                normalizedMsg.from,
+                { text: global.mess.error.commandNotFound },
+                { quoted: msg }
+            );
+        }
+    });
+      //Simpan store jika ada perubahan
+     setInterval(() => {
+        store?.writeToFile('./baileys_store_multi.json')
+    }, 10000)
+}
+
+
+connectToWhatsApp()
+    .catch(err => {
+        logger.error("Error di connectToWhatsApp:", err);
+        process.exit(1); // EXIT jika gagal
+    });
+
+
+// Handle Ctrl+C
+process.on('SIGINT', async () => {
+    logger.info('Menerima sinyal SIGINT. Mematikan bot...');
+    if (sock) {
+        try {
+            await sock.sendMessage(sock.user.id, { text: 'Bot dimatikan.' });
+             sock.end(undefined);
+        } catch (error) {
+            logger.error('Error saat mengirim pesan perpisahan/logout:', error);
+        }
+
+    }
+    store?.writeToFile('./baileys_store_multi.json') //simpan store
+    process.exit(0);
+});
+
+process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 

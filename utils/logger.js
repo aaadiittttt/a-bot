@@ -8,9 +8,9 @@ const logger = pino({
       colorize: true,
       translateTime: 'SYS:standard',
       ignore: 'pid,hostname',
-      level: 'debug', // Tambahkan level debug di sini!
+      level: 'debug', // Aktifkan level debug
     }
   }
 });
 
-module.exports = logger; // EXPORT LANGSUNG OBJEK LOGGER
+module.exports = logger; // Ekspor objek logger LANGSUNG
